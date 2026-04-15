@@ -1,19 +1,8 @@
-import { ProfileBanner } from "@/components/ProfileBanner";
-import { Text, View } from "react-native";
-import { SafeAreaView } from "react-native-safe-area-context";
-import avatarImg from "@/assets/avatar.png";
+import { View } from "react-native";
 
-export default function PresentesScreen() {
-  return (
-    <SafeAreaView>
-      <View>
-        {/* Header */}
-        <ProfileBanner
-          name="Paulo Souza"
-          email="paulo.souza@example.com"
-          avatar={avatarImg}
-        />
-      </View>
-    </SafeAreaView>
-  );
+// Stub – esta rota existe apenas para que o Expo Router registre o segmento.
+// A tab "Sair" intercepta o tabPress no _layout.tsx e exibe a modal de logout,
+// portanto esta tela nunca é renderizada.
+export default function SairStub() {
+  return <View />;
 }

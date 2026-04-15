@@ -1,9 +1,9 @@
-import { Colors, Fonts } from "@/constants/theme";
+import { Fonts } from "@/constants/theme";
 import {
   ActivityIndicator,
+  Alert,
   KeyboardAvoidingView,
   Platform,
-  Pressable,
   ScrollView,
   StyleSheet,
   Text,
@@ -11,7 +11,7 @@ import {
 } from "react-native";
 import Logo from "@/assets/logo_black.svg";
 import { FormField } from "@/components/formField";
-import { useState } from "react";
+import { useMemo, useState } from "react";
 import { maskCEP, maskCPF, maskDate, maskPhone } from "@/utils/masks";
 import { Button } from "@/components/Button";
 import { Input } from "@/components/Input";
@@ -19,8 +19,10 @@ import { StepIndicator } from "@/components/StepIndicator";
 import RadioGroup from "@/components/RadioGroup";
 import { DateInputField } from "@/components/DateInputField";
 import { Select, SelectOption } from "@/components/Select";
+import { useAuth } from "@/context/AuthContext";
+import { useTheme } from "@/context/ThemeContext";
+import type { ThemeColors } from "@/constants/theme";
 
-// const SEXO_OPTIONS = ["Masculino", "Feminino"];
 const UF_OPTIONS: SelectOption[] = [
   { label: "Acre", value: "AC" },
   { label: "Alagoas", value: "AL" },
@@ -51,8 +53,47 @@ const UF_OPTIONS: SelectOption[] = [
   { label: "Tocantins", value: "TO" },
 ];
 
+/** Converte "DD/MM/AAAA" para "AAAA-MM-DD" (ISO 8601) */
+function toISODate(dateStr: string): string | undefined {
+  const match = dateStr.match(/^(\d{2})\/(\d{2})\/(\d{4})$/);
+  if (!match) return undefined;
+  const [, day, month, year] = match;
+  return `${year}-${month}-${day}`;
+}
+
+/** Mapeia valor do RadioGroup ("M"/"F") para o enum do backend */
+function toGenero(value: string): "MASCULINO" | "FEMININO" | undefined {
+  if (value === "M") return "MASCULINO";
+  if (value === "F") return "FEMININO";
+  return undefined;
+}
+
 export default function CadastroScreen() {
+  const { cadastrar } = useAuth();
+  const { colors } = useTheme();
+  const styles = useMemo(() => makeStyles(colors), [colors]);
   const [step, setStep] = useState(1);
+  const [loading, setLoading] = useState(false);
+
+  function validarPasso1(): boolean {
+    if (!nome.trim()) {
+      Alert.alert("Atenção", "Informe o nome completo.");
+      return false;
+    }
+    if (!email.trim()) {
+      Alert.alert("Atenção", "Informe o e-mail.");
+      return false;
+    }
+    if (senha.length < 6) {
+      Alert.alert("Atenção", "A senha deve ter no mínimo 6 caracteres.");
+      return false;
+    }
+    if (senha !== confirmarSenha) {
+      Alert.alert("Atenção", "As senhas não coincidem.");
+      return false;
+    }
+    return true;
+  }
 
   // Passo 01
   const [nome, setNome] = useState("");
@@ -82,8 +123,6 @@ export default function CadastroScreen() {
       const response = await fetch(`https://viacep.com.br/ws/${digits}/json/`);
       const data = await response.json();
 
-      console.log(data);
-
       if (data.erro) {
         console.log("CEP não encontrado");
         return;
@@ -97,6 +136,28 @@ export default function CadastroScreen() {
       console.log("Erro ao buscar CEP.");
     } finally {
       setLoadingCep(false);
+    }
+  }
+
+  async function handleFinalizar() {
+    setLoading(true);
+    try {
+      await cadastrar({
+        nome,
+        email,
+        senha,
+        telefone: telefone || undefined,
+        documento: documento.replace(/\D/g, "") || undefined,
+        aniversario: toISODate(dataNascimento),
+        genero: toGenero(sexo),
+      });
+    } catch (err: any) {
+      const mensagem =
+        err?.response?.data?.message ??
+        "Erro ao realizar cadastro. Tente novamente.";
+      Alert.alert("Erro", Array.isArray(mensagem) ? mensagem.join("\n") : mensagem);
+    } finally {
+      setLoading(false);
     }
   }
 
@@ -133,42 +194,10 @@ export default function CadastroScreen() {
                 placeholder="Digite o seu completo"
               />
 
-              {/* Provisório */}
-              {/* <View style={styles.sexoRow}>
-                // {SEXO_OPTIONS.map((opc) => (
-                  <Pressable
-                    key={opc}
-                    style={[
-                      styles.sexoOption,
-                      sexo === opc && styles.sexoOptionActive,
-                    ]}
-                    onPress={() => setSexo(opc)}
-                  >
-                    <Text
-                      style={[
-                        styles.sexoText,
-                        sexo === opc && styles.sexoTextActive,
-                      ]}
-                    >
-                      {opc}
-                    </Text>
-                  </Pressable>
-                ))}
-              </View> */}
-
               <View style={styles.field}>
                 <Text style={styles.label}>Sexo</Text>
                 <RadioGroup value={sexo} onChange={setSexo} />
               </View>
-
-              {/* <FormField
-                label="Data de Nascimento"
-                value={dataNascimento}
-                onChangeText={(data) => setDataNascimento(maskDate(data))}
-                placeholder="DD/MM/AAAA"
-                keyboardType="numeric"
-                maxLength={10}
-              /> */}
 
               <DateInputField
                 label="Data de nascimento"
@@ -218,7 +247,7 @@ export default function CadastroScreen() {
                 secureTextEntry
               />
 
-              <Button label="Próximo" onPress={() => setStep(2)} />
+              <Button label="Próximo" onPress={() => validarPasso1() && setStep(2)} />
             </>
           )}
 
@@ -228,7 +257,7 @@ export default function CadastroScreen() {
                 <View style={styles.labelRow}>
                   <Text style={styles.label}>CEP</Text>
                   {loadingCep && (
-                    <ActivityIndicator size="small" color={Colors.primary} />
+                    <ActivityIndicator size="small" color={colors.primary} />
                   )}
                 </View>
                 <Input
@@ -266,14 +295,6 @@ export default function CadastroScreen() {
                 editable={!loadingCep}
               />
 
-              {/* <FormField
-                label="UF"
-                value={uf}
-                onChangeText={setUf}
-                placeholder="Digite seu Estado"
-                editable={!loadingCep}
-              /> */}
-
               <View style={styles.ufField}>
                 <Text style={styles.label}>UF</Text>
                 <Select
@@ -303,8 +324,12 @@ export default function CadastroScreen() {
                 style={styles.textArea}
               />
 
-              <Button label="Voltar" onPress={() => setStep(1)} />
-              <Button label="Finalizar" />
+              <Button label="Voltar" variant="outline" onPress={() => setStep(1)} />
+              <Button
+                label={loading ? "Finalizando..." : "Finalizar"}
+                onPress={handleFinalizar}
+                disabled={loading}
+              />
             </>
           )}
         </View>
@@ -313,77 +338,55 @@ export default function CadastroScreen() {
   );
 }
 
-const styles = StyleSheet.create({
-  container: {
-    flex: 1,
-    backgroundColor: Colors.white,
-  },
-  scrollContent: {
-    flexGrow: 1,
-    justifyContent: "center",
-  },
-  card: {
-    padding: 32,
-    gap: 16,
-  },
-  logo: {
-    alignSelf: "center",
-  },
-  divider: {
-    height: 1,
-    backgroundColor: Colors.border,
-    width: "100%",
-  },
-  title: {
-    textAlign: "center",
-    color: Colors.text,
-    fontSize: 31,
-    fontFamily: Fonts.title.bold,
-    lineHeight: 36,
-  },
-  // sexoRow: {
-  //   flexDirection: "row",
-  //   gap: 8,
-  // },
-  // sexoOption: {
-  //   flex: 1,
-  //   borderWidth: 1,
-  //   borderColor: Colors.border,
-  //   borderRadius: 8,
-  //   paddingVertical: 8,
-  //   alignItems: "center",
-  // },
-  // sexoOptionActive: {
-  //   borderColor: Colors.primary,
-  //   backgroundColor: Colors.indigo,
-  // },
-  // sexoText: {
-  //   fontSize: 13,
-  //   color: Colors.text,
-  //   fontFamily: Fonts.body.regular,
-  // },
-  // sexoTextActive: {
-  //   fontFamily: Fonts.body.bold,
-  // },
-  field: {
-    gap: 6,
-  },
-  label: {
-    fontSize: 14,
-    fontFamily: Fonts.body.semiBold,
-    color: Colors.text,
-  },
-  labelRow: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 8,
-  },
-  textArea: {
-    fontSize: 12,
-    fontFamily: Fonts.body.regular,
-    color: Colors.text,
-  },
-  ufField: {
-    gap: 6,
-  },
-});
+function makeStyles(colors: ThemeColors) {
+  return StyleSheet.create({
+    container: {
+      flex: 1,
+      backgroundColor: colors.background,
+    },
+    scrollContent: {
+      flexGrow: 1,
+      justifyContent: "center",
+    },
+    card: {
+      padding: 32,
+      gap: 16,
+    },
+    logo: {
+      alignSelf: "center",
+    },
+    divider: {
+      height: 1,
+      backgroundColor: colors.border,
+      width: "100%",
+    },
+    title: {
+      textAlign: "center",
+      color: colors.text,
+      fontSize: 31,
+      fontFamily: Fonts.title.bold,
+      lineHeight: 36,
+    },
+    field: {
+      gap: 6,
+    },
+    label: {
+      fontSize: 14,
+      fontFamily: Fonts.body.semiBold,
+      color: colors.text,
+    },
+    labelRow: {
+      flexDirection: "row",
+      alignItems: "center",
+      gap: 8,
+    },
+    textArea: {
+      fontSize: 12,
+      fontFamily: Fonts.body.regular,
+      color: colors.text,
+    },
+    ufField: {
+      gap: 6,
+    },
+  });
+}
